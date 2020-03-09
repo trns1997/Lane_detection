@@ -22,7 +22,7 @@ void cityBlock(pcl::visualization::PCLVisualizer::Ptr &viewer, ProcessPointCloud
     const Eigen::Vector4f kMaxPoint(12, 6.0, 4, 1);
     auto filter_cloud = point_cloud_processor.FilterCloud(input_cloud, kFilterResolution, kMinPoint, kMaxPoint);
 
-    // renderPointCloud(viewer, filter_cloud, "FilteredCloud", 2);
+    renderPointCloud(viewer, filter_cloud, "FilteredCloud", 2);
 
     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -68,7 +68,7 @@ void cityBlock(pcl::visualization::PCLVisualizer::Ptr &viewer, ProcessPointCloud
 
     for (unsigned int i = 0; i < diff.size(); ++i)
     {
-        if (diff[i] > 8 * thresh)
+        if (diff[i] > 9 * thresh)
         {
             ind.push_back(i);
         }
@@ -83,51 +83,57 @@ void cityBlock(pcl::visualization::PCLVisualizer::Ptr &viewer, ProcessPointCloud
 
     for (unsigned int j = 0; j < lane->points.size(); ++j)
     {
-        lane->points[j].x = plane->points[ind[j]].x;
-        lane->points[j].y = plane->points[ind[j]].y;
+        lane->points[j].x = plane->points[ind[j]].x / 5;
+        lane->points[j].y = plane->points[ind[j]].y * 10;
         lane->points[j].z = plane->points[ind[j]].z;
     }
 
     // Color cl = Color(0, 0, 1);
     // renderPointCloud(viewer, lane, "Lane", 10, cl);
 
-    // Create the filtering object: downsample the dataset using a leaf size of 1cm
-    pcl::VoxelGrid<pcl::PointXYZ> vg;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-    vg.setInputCloud(lane);
-    vg.setLeafSize(0.5f, 0.5f, 0.5f);
-    vg.filter(*cloud_filtered);
+    // // Create the filtering object: downsample the dataset using a leaf size of 1cm
+    // pcl::VoxelGrid<pcl::PointXYZ> vg;
+    // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    // vg.setInputCloud(lane);
+    // vg.setLeafSize(0.5f, 10.0f, 0.5f);
+    // vg.filter(*cloud_filtered);
 
-    // Color cl1 = Color(0, 1, 0);
+    // Color cl1 = Color(1, 0, 0);
     // renderPointCloud(viewer, cloud_filtered, "vox", 5, cl1);
 
     // Creating the KdTree object for the search method of the extraction
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-    tree->setInputCloud(cloud_filtered);
+    tree->setInputCloud(lane);
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-    ec.setClusterTolerance(1.2); // 2cm
-    ec.setMinClusterSize(5);
+    ec.setClusterTolerance(4); // 2cm
+    ec.setMinClusterSize(6);
     ec.setMaxClusterSize(100);
     ec.setSearchMethod(tree);
-    ec.setInputCloud(cloud_filtered);
+    ec.setInputCloud(lane);
     ec.extract(cluster_indices);
 
-    int j = 1;
-    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+    // int j = 1;
+    std::vector<Color> colors = {Color(1, 0, 0), Color(0, 0, 1), Color(0, 1, 1)};
+    int num_of_colors = colors.size();
+
+    for (unsigned int l = 0; l < cluster_indices.size(); ++l)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZ>);
-        for (std::vector<int>::const_iterator pit = it->indices.begin(); pit != it->indices.end(); ++pit)
-            cloud_cluster->points.push_back(cloud_filtered->points[*pit]); //*
-        cloud_cluster->width = cloud_cluster->points.size();
+        cloud_cluster->width = cluster_indices[l].indices.size();
         cloud_cluster->height = 1;
         cloud_cluster->is_dense = true;
+        cloud_cluster->points.resize(cloud_cluster->width * cloud_cluster->height);
+        for (unsigned int m = 0; m < cloud_cluster->points.size(); ++m)
+        {
+            cloud_cluster->points[m].x = lane->points[cluster_indices[l].indices[m]].x * 5;
+            cloud_cluster->points[m].y = lane->points[cluster_indices[l].indices[m]].y / 10;
+            cloud_cluster->points[m].z = lane->points[cluster_indices[l].indices[m]].z;
+        }
+        renderPointCloud(viewer, cloud_cluster, std::to_string(l), 10, colors[l % num_of_colors]);
 
-        // Color clr = Color(j % 3, j % 2, j % 1);
-        // renderPointCloud(viewer, cloud_cluster, std::to_string(j), 15, clr);
-
-        // std::cout << "PointCloud representing the Cluster: " << cloud_cluster->points.size() << " data points." << std::endl;
+        std::cout << "PointCloud representing the Cluster: " << cloud_cluster->points.size() << " data points." << std::endl;
 
         pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
         pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -144,15 +150,14 @@ void cityBlock(pcl::visualization::PCLVisualizer::Ptr &viewer, ProcessPointCloud
         seg.segment(*inliers, *coefficients);
 
         float xMin = 0;
-        float yMin = (((coefficients->values[4])*(xMin - coefficients->values[0]))/coefficients->values[3]) + coefficients->values[1];
-        float zMin = (((coefficients->values[5])*(xMin - coefficients->values[0]))/coefficients->values[3]) + coefficients->values[2];
+        float yMin = (((coefficients->values[4]) * (xMin - coefficients->values[0])) / coefficients->values[3]) + coefficients->values[1];
+        float zMin = (((coefficients->values[5]) * (xMin - coefficients->values[0])) / coefficients->values[3]) + coefficients->values[2];
 
         float xMax = 20;
-        float yMax = (((coefficients->values[4])*(xMax - coefficients->values[0]))/coefficients->values[3]) + coefficients->values[1];
-        float zMax = (((coefficients->values[5])*(xMax - coefficients->values[0]))/coefficients->values[3]) + coefficients->values[2];
+        float yMax = (((coefficients->values[4]) * (xMax - coefficients->values[0])) / coefficients->values[3]) + coefficients->values[1];
+        float zMax = (((coefficients->values[5]) * (xMax - coefficients->values[0])) / coefficients->values[3]) + coefficients->values[2];
 
-        viewer->addLine(pcl::PointXYZ(xMin, yMin, zMin), pcl::PointXYZ(xMax, yMax, zMax), 1, 1, 1, std::to_string(j));
-        j++;
+        viewer->addLine(pcl::PointXYZ(xMin, yMin, zMin), pcl::PointXYZ(xMax, yMax, zMax), 1, 1, 1, std::to_string(l));
     }
 }
 
